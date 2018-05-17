@@ -8,5 +8,5 @@ services:
       - "0.0.0.0:5000:5000"
     volumes:
       - /opt/geoip/db:/data:ro
-    command: ["/go/src/app/geoip-service", "-enableasn"]
+    command: ["app", "-enableasn"]
     restart: always

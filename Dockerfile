@@ -8,4 +8,4 @@ RUN go install -v ./...
 
 WORKDIR /data
 
-CMD ["/go/src/app/geoip-service"]
+CMD ["app"]
