@@ -90,6 +90,12 @@ type Country struct {
 	Traits             Traits             `maxminddb:"traits"`
 }
 
+// The ASN struct corresponds to the data in the GeoLite2 ASN database.
+type ASN struct {
+	AutonomousSystemNumber       uint   `maxminddb:"autonomous_system_number"`
+	AutonomousSystemOrganization string `maxminddb:"autonomous_system_organization"`
+}
+
 // The ConnectionType structure corresponds to the data in the GeoIP2
 // Connection-Type database.
 type ConnectionType struct {
@@ -147,6 +153,14 @@ func (r *Reader) Country(ipAddress net.IP) (*Country, error) {
 	var country Country
 	err := r.mmdbReader.Lookup(ipAddress, &country)
 	return &country, err
+}
+
+// ASN takes an IP address as a net.IP struct and returns a ASN struct and/or
+// an error
+func (r *Reader) ASN(ipAddress net.IP) (*ASN, error) {
+	var val ASN
+	err := r.mmdbReader.Lookup(ipAddress, &val)
+	return &val, err
 }
 
 // ConnectionType takes an IP address as a net.IP struct and returns a

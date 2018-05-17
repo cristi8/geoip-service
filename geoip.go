@@ -3,14 +3,15 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/klauspost/geoip-service/geoip2"
-	"github.com/pmylund/go-cache"
 	"log"
 	"net"
 	"net/http"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/cristi8/geoip-service/geoip2"
+	cache "github.com/pmylund/go-cache"
 )
 
 //go:generate ffjson --nodecoder $GOFILE
@@ -22,6 +23,12 @@ type ResponseCity struct {
 }
 
 // ffjson: nodecoder
+type ResponseASN struct {
+	Data  *geoip2.ASN `json:",omitempty"`
+	Error string      `json:",omitempty"`
+}
+
+// ffjson: nodecoder
 type ResponseCountry struct {
 	Data  *geoip2.Country `json:",omitempty"`
 	Error string          `json:",omitempty"`
@@ -29,6 +36,8 @@ type ResponseCountry struct {
 
 func main() {
 	var dbName = flag.String("db", "GeoLite2-City.mmdb", "File name of MaxMind GeoIP2 and GeoLite2 database")
+	var dbNameAsn = flag.String("dbasn", "GeoLite2-ASN.mmdb", "File name of ASN database")
+	var enableAsn = flag.Bool("enableasn", false, "Enable ASN lookup in database specified by 'dbasn' parameter")
 	var lookup = flag.String("lookup", "city", "Specify which value to look up. Can be 'city' or 'country' depending on which database you load.")
 	var listen = flag.String("listen", ":5000", "Listen address and port, for instance 127.0.0.1:5000")
 	var threads = flag.Int("threads", runtime.NumCPU(), "Number of threads to use. Defaults to number of detected cores")
@@ -38,6 +47,10 @@ func main() {
 	serverStart := time.Now().Format(http.TimeFormat)
 
 	flag.Parse()
+
+	// We dereference this to avoid a pretty big penalty under heavy load.
+	prettyL := *pretty
+	enableAsnL := *enableAsn
 
 	runtime.GOMAXPROCS(*threads)
 	var memCache *cache.Cache
@@ -58,8 +71,15 @@ func main() {
 	defer db.Close()
 	log.Println("Loaded database " + *dbName)
 
-	// We dereference this to avoid a pretty big penalty under heavy load.
-	prettyL := *pretty
+	var dbasn *geoip2.Reader
+	if enableAsnL {
+		dbasn, err = geoip2.Open(*dbNameAsn)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer dbasn.Close()
+		log.Println("Loaded database " + *dbNameAsn)
+	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		var ipText string
@@ -133,6 +153,69 @@ func main() {
 			}
 		} else {
 			result, err = db.Country(ip)
+			if err != nil {
+				returnError = err.Error()
+				return
+			}
+		}
+	})
+
+	http.HandleFunc("/asn", func(w http.ResponseWriter, req *http.Request) {
+		var ipText string
+		// Prepare the response and queue sending the result.
+		var cached []byte
+		var returnError string
+		var result interface{} = nil
+
+		defer func() {
+			var j []byte
+			var err error
+			if cached != nil {
+				j = cached
+			} else {
+				asn, _ := result.(*geoip2.ASN)
+				res := ResponseASN{Data: asn, Error: returnError}
+				if prettyL {
+					j, err = json.MarshalIndent(res, "", "  ")
+				} else {
+					j, err = res.MarshalJSON()
+				}
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			if memCache != nil && cached == nil {
+				memCache.Set("asn_"+ipText, j, 0)
+			}
+			w.Write(j)
+		}()
+
+		// Set headers
+		if *originPolicy != "" {
+			w.Header().Set("Access-Control-Allow-Origin", *originPolicy)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Last-Modified", serverStart)
+
+		ipText = req.URL.Query().Get("ip")
+		if ipText == "" {
+			ipText = strings.Trim(req.URL.Path, "/")
+		}
+		ip := net.ParseIP(ipText)
+		if ip == nil {
+			returnError = "unable to decode ip"
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if memCache != nil {
+			v, found := memCache.Get("asn_" + ipText)
+			if found {
+				cached = v.([]byte)
+				return
+			}
+		}
+		if enableAsnL {
+			result, err = dbasn.ASN(ip)
 			if err != nil {
 				returnError = err.Error()
 				return
