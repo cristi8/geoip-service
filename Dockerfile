@@ -1,7 +1,11 @@
-FROM golang:1.3-onbuild
-MAINTAINER Klaus Post <klauspost@gmail.com>
+FROM golang:1.8
 
-EXPOSE 5000
+WORKDIR /go/src/app
+COPY . .
 
-CMD ["app", "-db=/data/geodb.mmdb"]
-VOLUME /data/geodb.mmdb
+RUN go get -d -v ./...
+RUN go install -v ./...
+
+WORKDIR /data
+
+CMD ["/go/src/app/geoip-service"]

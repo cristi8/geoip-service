@@ -1,0 +1,12 @@
+version: '3'
+services:
+  geoip:
+    build: .
+    image: cristi8/geoip-service
+    logging: {driver: "json-file", options: {max-size: "1m", max-file: "3"}}
+    ports:
+      - "0.0.0.0:5000:5000"
+    volumes:
+      - /opt/geoip/db:/data:ro
+    command: ["/go/src/app/geoip-service", "-enableasn"]
+    restart: always
