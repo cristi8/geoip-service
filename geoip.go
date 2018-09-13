@@ -12,6 +12,9 @@ import (
 
 	"github.com/cristi8/geoip-service/geoip2"
 	cache "github.com/pmylund/go-cache"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:generate ffjson --nodecoder $GOFILE
@@ -33,6 +36,17 @@ type ResponseCountry struct {
 	Data  *geoip2.Country `json:",omitempty"`
 	Error string          `json:",omitempty"`
 }
+
+var (
+	opsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "geoip_requests_total",
+		Help: "The total number of processed requests",
+	})
+	opsDuration = promauto.NewSummary(prometheus.SummaryOpts{
+		Name: "geoip_requests_duration_seconds",
+		Help: "Duration of requests handling, in seconds",
+	})
+)
 
 func main() {
 	var dbName = flag.String("db", "GeoLite2-City.mmdb", "File name of MaxMind GeoIP2 and GeoLite2 database")
@@ -87,6 +101,10 @@ func main() {
 		var cached []byte
 		var returnError string
 		var result interface{} = nil
+
+		opsTotal.Inc()
+		timer := prometheus.NewTimer(opsDuration)
+		defer timer.ObserveDuration()
 
 		defer func() {
 			var j []byte
@@ -167,6 +185,10 @@ func main() {
 		var returnError string
 		var result interface{} = nil
 
+		opsTotal.Inc()
+		timer := prometheus.NewTimer(opsDuration)
+		defer timer.ObserveDuration()
+
 		defer func() {
 			var j []byte
 			var err error
@@ -222,6 +244,8 @@ func main() {
 			}
 		}
 	})
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	log.Println("Listening on " + *listen)
 	log.Fatal(http.ListenAndServe(*listen, nil))
